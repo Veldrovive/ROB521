@@ -548,7 +548,7 @@ class PathPlanner:
                 # print(f"Collision detected at point {point}. Skipping.")
                 continue
 
-            if count % 100 == 0:
+            if count % 1000 == 0:
                 fig, ax = plt.subplots(1, 3, figsize=(10, 5))
                 # Plot the trajectory
                 ax[0].plot(trajectory_o[0, :], trajectory_o[1, :], 'r')

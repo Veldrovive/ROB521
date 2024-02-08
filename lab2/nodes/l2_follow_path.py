@@ -3,7 +3,9 @@ from __future__ import division, print_function
 import os
 
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.linalg import block_diag
+from skimage.draw import disk
 from scipy.spatial.distance import cityblock
 import rospy
 import tf2_ros
@@ -18,12 +20,12 @@ import utils
 
 
 TRANS_GOAL_TOL = .1  # m, tolerance to consider a goal complete
-ROT_GOAL_TOL = .3  # rad, tolerance to consider a goal complete
-TRANS_VEL_OPTS = [0, 0.025, 0.13, 0.26]  # m/s, max of real robot is .26
-ROT_VEL_OPTS = np.linspace(-1.82, 1.82, 11)  # rad/s, max of real robot is 1.82
+ROT_GOAL_TOL = 2*np.pi #.3  # rad, tolerance to consider a goal complete
+TRANS_VEL_OPTS = [0.2] #[0, 0.13, 0.20, 0.23, 0.25, 0.257, 0.26]  # m/s, max of real robot is .26
+ROT_VEL_OPTS = [-0.8, -0.1, 0, 0.1, 0.8] #np.linspace(-1.82, 1.82, 21)  # rad/s, max of real robot is 1.82
 CONTROL_RATE = 5  # Hz, how frequently control signals are sent
-CONTROL_HORIZON = 5  # seconds. if this is set too high and INTEGRATION_DT is too low, code will take a long time to run!
-INTEGRATION_DT = .025  # s, delta t to propagate trajectories forward by
+CONTROL_HORIZON = 3 #5  # seconds. if this is set too high and INTEGRATION_DT is too low, code will take a long time to run!
+INTEGRATION_DT = 0.1 #.025  # s, delta t to propagate trajectories forward by
 COLLISION_RADIUS = 0.225  # m, radius from base_link to use for collisions, min of 0.2077 based on dimensions of .281 x .306
 ROT_DIST_MULT = .1  # multiplier to change effect of rotational distance in choosing correct control
 OBS_DIST_MULT = .1  # multiplier to change the effect of low distance to obstacles on a path
@@ -32,7 +34,9 @@ PATH_NAME = 'path.npy'  # saved path from l2_planning.py, should be in the same 
 
 # here are some hardcoded paths to use if you want to develop l2_planning and this file in parallel
 # TEMP_HARDCODE_PATH = [[2, 0, 0], [2.75, -1, -np.pi/2], [2.75, -4, -np.pi/2], [2, -4.4, np.pi]]  # almost collision-free
-TEMP_HARDCODE_PATH = [[2, -.5, 0], [2.4, -1, -np.pi/2], [2.45, -3.5, -np.pi/2], [1.5, -4.4, np.pi]]  # some possible collisions
+TEMP_HARDCODE_PATH = [[2.5, -.5, 0], [2.6, -1, -np.pi/2], [2.45, -3.8, -np.pi/2], [1.5, -4.4, np.pi]]  # some possible collisions
+# TEMP_HARDCODE_PATH = [[3, -.5, 0], [3.2, -1, -np.pi/2], [3.3, -3.8, -np.pi/2], [1.5, -4.4, np.pi]]  # some possible collisions
+# TEMP_HARDCODE_PATH = [[20, -10, 0]]
 
 
 class PathFollower():
@@ -47,7 +51,7 @@ class PathFollower():
 
         # constant transforms
         self.map_odom_tf = self.tf_buffer.lookup_transform('map', 'odom', rospy.Time(0), rospy.Duration(2.0)).transform
-        print(self.map_odom_tf)
+        print(f"Map odom tf \n{self.map_odom_tf}")
 
         # subscribers and publishers
         self.cmd_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
@@ -59,10 +63,12 @@ class PathFollower():
         map = rospy.wait_for_message('/map', OccupancyGrid)
         self.map_np = np.array(map.data).reshape(map.info.height, map.info.width)
         self.map_resolution = round(map.info.resolution, 5)
+        self.map_shape = self.map_np.shape
         self.map_origin = -utils.se2_pose_from_pose(map.info.origin)  # negative because of weird way origin is stored
-        print(self.map_origin)
+        print(f"Map origin: {self.map_origin}")
         self.map_nonzero_idxes = np.argwhere(self.map_np)
-        print(map)
+        print(f"Got map of size {self.map_shape}")
+        # print(map)
 
 
         # collisions
@@ -89,8 +95,8 @@ class PathFollower():
         cur_dir = os.path.dirname(os.path.realpath(__file__))
 
         # to use the temp hardcoded paths above, switch the comment on the following two lines
-        self.path_tuples = np.load(os.path.join(cur_dir, 'path.npy')).T
-        # self.path_tuples = np.array(TEMP_HARDCODE_PATH)
+        # self.path_tuples = np.load(os.path.join(cur_dir, 'path.npy')).T
+        self.path_tuples = np.array(TEMP_HARDCODE_PATH)
 
         self.path = utils.se2_pose_list_to_path(self.path_tuples, 'map')
         self.global_path_pub.publish(self.path)
@@ -115,10 +121,12 @@ class PathFollower():
         self.rate = rospy.Rate(CONTROL_RATE)
 
         rospy.on_shutdown(self.stop_robot_on_shutdown)
-        self.follow_path()
+        
 
         self.local_trajectories = self.compute_local_trajectories(self.all_opts, self.horizon_timesteps, dt=INTEGRATION_DT)
-        self.local_colliders_px = self.compute_local_colliders(self.local_trajectories, self.map_resolution, self.collision_radius_pix)
+        self.local_colliders_px = self.compute_local_colliders(self.local_trajectories)
+
+        self.follow_path()
 
     def compute_local_trajectories(self, all_opts, horizon_timesteps, dt):
         """
@@ -152,11 +160,11 @@ class PathFollower():
 
         # Apparently we are doing this differently here
         # Down below it happens like this (self.map_origin[:2] + self.pose_in_map_np[:2]) / self.map_resolution
-        shifted_points = np.expand_dims(self.map_origin[:2], axis=1) + points
+        shifted_points = np.expand_dims(self.map_origin[:2], axis=1) + points  # 2xN
         pixel_coords = shifted_points / self.map_resolution
         return pixel_coords
 
-    def generate_trajectory_collider(self, trajectory, radius_px, map_shape=None, unique=False):
+    def generate_trajectory_collider(self, trajectory, unique=False, use_map_shape=True):
         """
         Generates a list of pixel locations that are occupied by the robot at each timestep in the trajectory
 
@@ -169,9 +177,16 @@ class PathFollower():
         point_trajectory = point_trajectory.T
         trajectory_px = self.point_to_px(point_trajectory)
 
+        return self.generate_local_collider(trajectory_px, unique=unique, use_map_shape=use_map_shape)
+    
+    def generate_local_collider(self, trajectory_px, unique=False, use_map_shape=False):
+        """
+        trajectory_px: np.array of shape (2, horizon_timesteps + 1). Should be in pixels.
+        """
         trajectory_colliders = []
-        for t in range(trajectory.shape[0]):
-            collider = np.array(disk(trajectory_px[:, point_ind], radius=radius_px, shape=(map_shape[1], map_shape[0])))
+        shape = (self.map_shape[1], self.map_shape[0]) if use_map_shape else None
+        for point_ind in range(trajectory_px.shape[1]):
+            collider = np.array(disk(trajectory_px[:, point_ind], radius=self.collision_radius_pix, shape=shape))
             trajectory_colliders.append(collider.T)
         # VStack the colliders to get the final shape
         trajectory_colliders = np.vstack(trajectory_colliders)
@@ -182,7 +197,7 @@ class PathFollower():
 
         return trajectory_colliders.T  # Return the transposed array to get the 2xM shape
 
-    def compute_local_colliders(self, local_trajectories, map_resolution, radius_px, map_shape=None):
+    def compute_local_colliders(self, local_trajectories):
         """
         Computes the pixel locations in the local frame for the colliders of the robot
 
@@ -195,7 +210,12 @@ class PathFollower():
         # NOTE: the generate_trajectory_collider function converts to pixels so we do not need to do that here
         trajectory_opt_colliders = []
         for opt in range(local_trajectories.shape[1]):
-            trajectory_opt_colliders.append(self.generate_trajectory_collider(local_trajectories_px[:, opt], radius_px, map_shape=map_shape, unique=True))
+            # trajectory_opt_colliders.append(self.generate_trajectory_collider(local_trajectories[:, opt], unique=True, use_map_shape=False))
+            local_trajectory = local_trajectories[:, opt]  # (horizon_timesteps + 1, 3)
+            local_trajectory_px = local_trajectory[:, :2].T / self.map_resolution
+            trajectory_opt_colliders.append(self.generate_local_collider(local_trajectory_px, unique=True, use_map_shape=False))
+
+        return trajectory_opt_colliders  # N of 2xM where N is the number of options, M is the number of colliding pixels
 
     def construct_transformation_matrices(self, x, y, theta):
         """
@@ -220,12 +240,17 @@ class PathFollower():
         return T_0R, T_R0
 
     def follow_path(self):
+        print("Starting path following")
+        self.control = [None, None]
         while not rospy.is_shutdown():
+            print(f"Pose: x={self.pose_in_map_np[0]}, y={self.pose_in_map_np[1]}, theta={self.pose_in_map_np[2]}, goal: {self.cur_path_index}")
+            self.rate.sleep()
             # timing for debugging...loop time should be less than 1/CONTROL_RATE
             tic = rospy.Time.now()
 
             self.update_pose()
             self.check_and_update_goal()
+
 
             # # start trajectory rollout algorithm
             # local_paths = np.zeros([self.horizon_timesteps + 1, self.num_opts, 3])
@@ -249,6 +274,16 @@ class PathFollower():
                 global_theta = trajectory_theta + self.pose_in_map_np[2]  # Mx1
                 global_trajectories[:, opt_ind] = np.hstack([global_trajectory_hom[:, :2], global_theta[:, None]])
 
+            if self.control[0] == 0 or True:
+                # Now we visualize all these trajectories in the global frame using matplotlib
+                fig, ax = plt.subplots()
+                # Plot each trajectory as a line
+                for opt_ind in range(self.num_opts):
+                    ax.plot(global_trajectories[:, opt_ind, 0], global_trajectories[:, opt_ind, 1])
+                # Show the plot
+                plt.show()
+                return
+
             # TODO: I think it would be more efficient to do scoring first and then collision checks since collision checks involve iterating
             # over a lot of points to create the colliders.
 
@@ -266,22 +301,74 @@ class PathFollower():
             # Instead of that, we iterate over the global frame trajectories (m) and compute the colliders in the global frame
             # Then we can use numpy indexing to efficiently compute overlap between the colliders and the map
             valid_opts = []
+            all_colliders = []
             for opt_ind in range(self.num_opts):
-                trajectory = local_paths[:, opt_ind]
-                colliders = self.generate_trajectory_collider(trajectory, self.collision_radius_pix, map_shape=self.map_np.shape, unique=False)
+                trajectory = global_trajectories[:, opt_ind]
+                colliders = self.generate_trajectory_collider(trajectory, unique=False)
+                # all_colliders.append(colliders)
                 # Check for collisions
-                collision = np.any(self.map_np[colliders[0], colliders[1]])
+                collision = np.any(self.map_np[colliders[1], colliders[0]])
                 if not collision:
+                    all_colliders.append(colliders)
                     valid_opts.append(opt_ind)
+
+            # T_0R_px, T_R0_px = self.construct_transformation_matrices(self.pos_in_map_pix[0], self.pos_in_map_pix[1], self.pose_in_map_np[2])
+
+            # valid_opts = []
+            # all_colliders = []
+            # for opt_ind in range(self.num_opts):
+            #     local_colliders = self.local_colliders_px[opt_ind]
+            #     local_collider_hom = np.vstack([local_colliders, np.ones(local_colliders.shape[1])])  # 3xM homogeneous coordinates
+            #     global_colliders = T_0R_px @ local_collider_hom  # 3x3 @ 3xM
+
+            #     global_colliders = global_colliders[:2]  # 2xM
+            #     global_colliders = global_colliders.astype(int)
+            #     # Check for collisions
+            #     collision = np.any(self.map_np[global_colliders[1], global_colliders[0]])
+                
+            #     if not collision:
+            #         all_colliders.append(global_colliders)
+            #         valid_opts.append(opt_ind)
 
             if len(valid_opts) == 0:
                 # If there are no valid options, then we should try backing up and see if that helps.
-                control = [-1, 0]
+                self.control = [-1, 0]
             else:
-
                 # remove trajectories that were deemed to have collisions
                 # print("TO DO: Remove trajectories with collisions!")
                 valid_trajectories = global_trajectories[:, valid_opts]  # NxM'x3 where M' is the number of valid options for the trajectory and N is the number of timesteps
+
+                if self.control[0] == 0 or False:
+                    all_colliders = np.hstack(all_colliders)
+                    # Visualize the colliders on the map
+                    fig, ax = plt.subplots()
+                    # To do this, we copy the map and make all the colliders 50
+                    map_with_colliders = self.map_np.copy()
+                    map_with_colliders[all_colliders[1], all_colliders[0]] = 50
+                    ax.imshow(map_with_colliders)
+                    print(f"Current pixel position: {self.pos_in_map_pix}")
+                    print(f"Num colliders: {len(self.local_colliders_px)}")
+                    # Plot the current position
+                    ax.plot(self.pos_in_map_pix[0], self.pos_in_map_pix[1], 'ro')
+                    # Plot the colliders as dots
+                    # ax.plot(colliders[0], colliders[1], 'bo')
+
+                    # #plot the valid trajectories
+                    # for opt_ind in valid_opts:
+                    #     trajectory = global_trajectories[:, opt_ind]
+                    #     trajectory_px = self.point_to_px(trajectory[:, :2].T)
+                    #     ax.plot(trajectory_px[0], trajectory_px[1], 'g')
+
+                    # Print out the valid controls
+                    print(f"Valid controls: {self.all_opts[valid_opts]}")
+
+                    # Plot the valid trajectories
+                    for opt_ind in range(valid_trajectories.shape[1]):
+                        trajectory_px = self.point_to_px(valid_trajectories[:, opt_ind, :2].T)
+                        ax.plot(trajectory_px[0], trajectory_px[1], 'g')
+
+                    plt.show()
+                    return
 
                 # # calculate final cost and choose best option
                 # print("TO DO: Calculate the final cost and choose the best control option!")
@@ -315,25 +402,58 @@ class PathFollower():
                 theta_cosine_similarity = np.cos(valid_trajectories[-1, :, 2] - self.cur_goal[2])  # Measures similarity to the goal in a unitless way
                 # We want a angle cost that varies from 0 to 1. It is 0 when the angle is exactly correct and 1 when the angle is 180 degrees off
                 angle_distance = 1 - (theta_cosine_similarity + 1) / 2
-                beta = 2  # Weighting for the angle distance. Expressed in meters. Can be understood as the corresponding distance for being completely off angle
+                beta = 0.0  # Weighting for the angle distance. Expressed in meters. Can be understood as the corresponding distance for being completely off angle
 
                 # An even better approach would be to compute the cost function at each timestep and then to the min over those, but I can't be bothered to figure out
                 # how to do that right now. This also allows us to make the cost function more complex without sacrificing efficiency.
 
                 # The cost is then the sum of the distance to the goal and the angle distance
                 final_cost = goal_distance + beta * angle_distance
-                best_opt = final_cost.argmin()
-                control = self.all_opts[best_opt]
+                final_cost -= TRANS_GOAL_TOL - 0.05
+                final_cost[final_cost < 0] = 0
+                if np.any(final_cost == 0):
+                    print(final_cost.shape)
+                    zero_cost_indices = np.argwhere(final_cost == 0).flatten()
+                    print(f"Zero cost indices: {zero_cost_indices}")
+                    zero_cost_controls = [self.all_opts[valid_opts[i]] for i in zero_cost_indices]
+                    print(f"Zero cost controls: {zero_cost_controls}")
+                    # Add a small penalty for rotatinal velocity
+                    final_cost += np.abs(self.all_opts[valid_opts, 1])
+                    print(f"Final cost after adding rotational velocity: {final_cost}")
+
+                
+                best_opt = final_cost.argmin()  # M'
+                
+                self.control = self.all_opts[valid_opts][best_opt]  # M -> M' -> 2
                 self.local_path_pub.publish(utils.se2_pose_list_to_path(valid_trajectories[:, best_opt], 'map'))
+                print(f"Best option: {best_opt}, Final cost: {final_cost[best_opt]}. Control: {self.control}")
+
+                if False:
+                    
+                    # Now we visualize all these trajectories in the global frame using matplotlib
+                    fig, ax = plt.subplots()
+                    # Plot each trajectory as a line
+                    for opt_ind in range(valid_trajectories.shape[1]):
+                        # plot the best option in red
+                        if opt_ind == best_opt:
+                            ax.plot(valid_trajectories[:, opt_ind, 0], valid_trajectories[:, opt_ind, 1], 'r')
+                        else:
+                            ax.plot(valid_trajectories[:, opt_ind, 0], valid_trajectories[:, opt_ind, 1], 'b')
+                    # Plot the final positions as red dots
+                    ax.plot(final_positions[:, 0], final_positions[:, 1], 'ro')
+                    # Show the plot
+                    plt.show()
+                    return
 
             # send command to robot
-            self.cmd_pub.publish(utils.unicyle_vel_to_twist(control))
+            self.cmd_pub.publish(utils.unicyle_vel_to_twist(self.control))
 
             # uncomment out for debugging if necessary
             # print("Selected control: {control}, Loop time: {time}, Max time: {max_time}".format(
             #     control=control, time=(rospy.Time.now() - tic).to_sec(), max_time=1/CONTROL_RATE))
 
             self.rate.sleep()
+        print("Shut Down")
 
     def update_pose(self):
         # Update numpy poses with current pose using the tf_buffer
@@ -362,9 +482,10 @@ class PathFollower():
                 self.cur_path_index += 1
                 self.cur_goal = np.array(self.path_tuples[self.cur_path_index])
         else:
-            rospy.logdebug("Goal {goal} at {pose}, trans error: {t_err}, rot error: {r_err}.".format(
-                goal=self.cur_path_index, pose=self.cur_goal, t_err=dist_from_goal, r_err=rot_dist_from_goal
-            ))
+            # rospy.logdebug("Goal {goal} at {pose}, trans error: {t_err}, rot error: {r_err}.".format(
+            #     goal=self.cur_path_index, pose=self.cur_goal, t_err=dist_from_goal, r_err=rot_dist_from_goal
+            # ))
+            pass
 
     def stop_robot_on_shutdown(self):
         self.cmd_pub.publish(Twist())

@@ -151,7 +151,7 @@ class PathPlanner:
         a = 0.2  # The smaller this value, the more biased the sampling
         # b is more difficult to set. It needs to depend on the resolution of the map.
         # It should be a certain number of meters in pixels
-        b = 1 / self.map_settings_dict["resolution"]
+        b = 0.25 / self.map_settings_dict["resolution"]
         self.near_edge_distribution = (self.near_edge_distances / b) / ((self.near_edge_distances / b) ** 2 + a ** 2)
 
         if self.edge_bias_end:
@@ -496,7 +496,7 @@ class PathPlanner:
     #     print("TO DO: Implement a cost to come metric")
     #     return 0
 
-    def get_nearby_nodes(self, node: Node) -> list[int]:
+    def get_nearby_nodes(self, node: Node):
         """
         Finds all nodes that are within ball_radius of the given node
         """
@@ -558,7 +558,8 @@ class PathPlanner:
         plt.plot(x, y, 'go')
 
         if show_path:
-            path = self.recover_path()
+            best_node = self.find_best_node()
+            path = self.recover_path(best_node)
             for i in range(1, len(path)):
                 x, y = self.point_to_cell(path[i - 1][:2].reshape(2, 1))
                 x_next, y_next = self.point_to_cell(path[i][:2].reshape(2, 1))
@@ -664,10 +665,10 @@ class PathPlanner:
             if np.linalg.norm(point - self.goal_point.flatten()) < self.stopping_dist:
                 print("Goal Reached!")
                 break
-        self.visualize_tree()
+        self.visualize_tree(show_path=True)
         return self.nodes
     
-    def rrt_star_planning(self):
+    def rrt_star_planning(self, recursive=False):
         #This function performs RRT* for the given map and robot       
         end_count = np.inf 
         count = 0
@@ -747,8 +748,14 @@ class PathPlanner:
                 self.rewire_node(new_node_id, new_parent_node_id, new_trajectory_cost)
 
             #Close node rewire
+            rewired_set = set()
             to_rewire_ids = nearby_node_ids.copy()
-            for node_id in to_rewire_ids:
+            # for node_id in to_rewire_ids:
+            while len(to_rewire_ids) > 0:
+                node_id = to_rewire_ids.pop(0)
+                if node_id in rewired_set:
+                    continue
+                rewired_set.add(node_id)
                 node = self.nodes[node_id]
                 # Check if the trajectory from the new node to the old node is collision free
                 trajectory_o, trajectory_cost = get_valid_trajectory(new_node, node.point[:2])  # TODO: It would be more efficient to check if the cost is lower before doing collision checking.
@@ -759,6 +766,11 @@ class PathPlanner:
                 if new_cost_to_come < node.cost:
                     print(f"Rewiring node {node.point[:2]} to new node {new_node.point[:2]} with cost {new_cost_to_come}")
                     self.rewire_node(node_id, new_node_id, trajectory_cost)
+                    if recursive:
+                        # Take a ball around the rewired node and rewire all nodes within it
+                        nearby_node_ids = self.get_nearby_nodes(node)
+                        for nearby_node_id in nearby_node_ids:
+                            to_rewire_ids.append(nearby_node_id)
 
             #Check for early end
             #Check if goal has been reached
@@ -766,10 +778,26 @@ class PathPlanner:
             if np.linalg.norm(point - self.goal_point.flatten()) < self.stopping_dist:
                 print("Goal Reached!")
                 if end_count == np.inf:
-                    end_count = 2*count
+                    end_count = 2*count + 200
             count += 1
-        self.visualize_tree()
+            print(f"Count: {count}. End count: {end_count}")
+        self.visualize_tree(show_path=True)
         return self.nodes
+    
+    def find_best_node(self):
+        """
+        Finds the node that is within the ball radius of the goal with the lowest cost to come
+        """
+        best_node_id = -1
+        best_cost_to_come = np.inf
+        ball_radius_sqr = self.stopping_dist ** 2
+        for node_id in range(len(self.nodes)):
+            node = self.nodes[node_id]
+            dist_sqr = np.sum((node.point[:2] - self.goal_point.flatten()) ** 2)
+            if dist_sqr < ball_radius_sqr and node.cost < best_cost_to_come:
+                best_cost_to_come = node.cost
+                best_node_id = node_id
+        return best_node_id
     
     def recover_path(self, node_id = -1):
         path = [self.nodes[node_id].point.reshape(3, 1)]
@@ -782,26 +810,29 @@ class PathPlanner:
 
 def main():
     #Set map information
-    map_filename = "willowgarageworld_05res.png"
-    map_setings_filename = "willowgarageworld_05res.yaml"
+    # map_filename = "willowgarageworld_05res.png"
+    # map_setings_filename = "willowgarageworld_05res.yaml"
 
-    # map_filename = "myhal.png"
-    # map_setings_filename = "myhal.yaml"
+    map_filename = "myhal.png"
+    map_setings_filename = "myhal.yaml"
 
     #robot information
     # goal_point = np.array([[9], [4]]) #m
     # goal_point = np.array([[9], [0]]) #m
     # goal_point = np.array([[20], [8]]) #m
-    goal_point = np.array([[41.5], [-44.5]]) #m
+    # goal_point = np.array([[41.5], [-44.5]]) #m
     # goal_point = np.array([[20], [-30]]) #m
     # goal_point = np.array([[7], [2]]) #m
     stopping_dist = 0.5 #m
+
+    goal_point = np.array([[7], [0]]) #m
 
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
     # nodes = path_planner.rrt_planning()
     nodes = path_planner.rrt_star_planning()
-    path = path_planner.recover_path()
+    best_node = path_planner.find_best_node()
+    path = path_planner.recover_path(best_node)
     node_path_metric = np.hstack(path)
 
     #Leftover test functions

@@ -39,6 +39,19 @@ TEMP_HARDCODE_PATH = [[2.5, -.5, 0], [2.6, -1, -np.pi/2], [2.45, -3.8, -np.pi/2]
 # TEMP_HARDCODE_PATH = [[20, -10, 0]]
 
 
+#Map Handling Functions
+def load_map(filename):
+    import matplotlib.image as mpimg
+    import cv2 
+    im = cv2.imread("../maps/" + filename)
+    im = cv2.flip(im, 0)
+    # im = mpimg.imread("../maps/" + filename)
+    if len(im.shape) > 2:
+        im = im[:,:,0]
+    im_np = np.array(im)  #Whitespace is true, black is false
+    im_np = np.logical_not(im_np)     #for ros
+    return im_np
+
 class PathFollower():
     def __init__(self):
         # time full path
@@ -60,15 +73,23 @@ class PathFollower():
         self.collision_marker_pub = rospy.Publisher('~collision_marker', Marker, queue_size=1)
 
         # map
-        map = rospy.wait_for_message('/map', OccupancyGrid)
-        self.map_np = np.array(map.data).reshape(map.info.height, map.info.width)
-        self.map_resolution = round(map.info.resolution, 5)
-        self.map_shape = self.map_np.shape
-        self.map_origin = -utils.se2_pose_from_pose(map.info.origin)  # negative because of weird way origin is stored
-        print(f"Map origin: {self.map_origin}")
-        self.map_nonzero_idxes = np.argwhere(self.map_np)
-        print(f"Got map of size {self.map_shape}")
+        # map = rospy.wait_for_message('/map', OccupancyGrid)
+        # self.map_np = np.array(map.data).reshape(map.info.height, map.info.width)
+        # self.map_resolution = round(map.info.resolution, 5)
+        # self.map_shape = self.map_np.shape
+        # self.map_origin = -utils.se2_pose_from_pose(map.info.origin)  # negative because of weird way origin is stored
+        # print(f"Map origin: {self.map_origin}")
+        # self.map_nonzero_idxes = np.argwhere(self.map_np)
+        # print(f"Got map of size {self.map_shape}")
         # print(map)
+
+        map_filename = "myhal.png"
+        occupancy_map = load_map(map_filename)
+        self.map_np = occupancy_map
+        self.map_resolution = 0.05
+        self.map_shape = self.map_np.shape
+        self.map_origin = np.array([ 0.2 , 0.2 ,-0. ])
+        self.map_nonzero_idxes = np.argwhere(self.map_np)
 
 
         # collisions
@@ -86,7 +107,8 @@ class PathFollower():
         self.collision_marker.color.a = 0.5
 
         # transforms
-        self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_link', rospy.Time(0), rospy.Duration(2.0))
+        # self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_link', rospy.Time(0), rospy.Duration(2.0))
+        self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_footprint', rospy.Time(0), rospy.Duration(2.0))
         self.pose_in_map_np = np.zeros(3)
         self.pos_in_map_pix = np.zeros(2)
         self.update_pose()
@@ -472,7 +494,8 @@ class PathFollower():
 
     def update_pose(self):
         # Update numpy poses with current pose using the tf_buffer
-        self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_link', rospy.Time(0)).transform
+        # self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_link', rospy.Time(0)).transform
+        self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_footprint', rospy.Time(0)).transform
         self.pose_in_map_np[:] = [self.map_baselink_tf.translation.x, self.map_baselink_tf.translation.y,
                                   utils.euler_from_ros_quat(self.map_baselink_tf.rotation)[2]]
         self.pos_in_map_pix = (self.map_origin[:2] + self.pose_in_map_np[:2]) / self.map_resolution  # TODO: I think this is incorrect

@@ -84,7 +84,7 @@ class PathPlanner:
         self.trajectory_type = "straight" #Options are "circular" or "straight"
 
         #Planning storage
-        self.nodes = [Node(np.zeros((3,1)), -1, 0)]
+        self.nodes = [Node(np.zeros(3), -1, 0)]
         # self.nodes = [Node(np.array([3, 2, -np.pi/6]), -1, 0)]
         self.used_nodes = set()  # hash set of (x, y) tuples
 
@@ -626,10 +626,10 @@ class PathPlanner:
         return self.nodes
     
     def recover_path(self, node_id = -1):
-        path = [self.nodes[node_id].point]
+        path = [self.nodes[node_id].point.reshape(3, 1)]
         current_node_id = self.nodes[node_id].parent_id
         while current_node_id > -1:
-            path.append(self.nodes[current_node_id].point)
+            path.append(self.nodes[current_node_id].point.reshape(3, 1))
             current_node_id = self.nodes[current_node_id].parent_id
         path.reverse()
         return path
@@ -643,17 +643,19 @@ def main():
     # map_setings_filename = "myhal.yaml"
 
     #robot information
-    # goal_point = np.array([[9], [4]]) #m
+    goal_point = np.array([[9], [4]]) #m
+    # goal_point = np.array([[9], [0]]) #m
     # goal_point = np.array([[20], [8]]) #m
     # goal_point = np.array([[41.5], [-44.5]]) #m
-    goal_point = np.array([[20], [-30]]) #m
+    # goal_point = np.array([[20], [-30]]) #m
     # goal_point = np.array([[7], [2]]) #m
     stopping_dist = 0.5 #m
 
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
     nodes = path_planner.rrt_planning()
-    node_path_metric = np.hstack(path_planner.recover_path())
+    path = path_planner.recover_path()
+    node_path_metric = np.hstack(path)
 
     #Leftover test functions
     np.save("shortest_path.npy", node_path_metric)

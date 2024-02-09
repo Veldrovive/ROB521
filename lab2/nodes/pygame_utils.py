@@ -1,5 +1,6 @@
 import numpy as np
 import pygame
+import os
 # from pygame.locals import *
 
 COLORS = dict(
@@ -27,7 +28,11 @@ class PygameWindow:
         self.map_settings_dict = map_settings_dict
         self.origin = np.array(map_settings_dict['origin'])
 
-        map_img = pygame.image.load('../maps/willowgarageworld_05res.png')
+        map_name = 'willowgarageworld'
+        image_path = f'../maps/{map_name}_05res.png'
+        if not os.path.exists(image_path):
+            image_path = f'./lab2/maps/{map_name}_05res.png'
+        map_img = pygame.image.load(image_path)
         map_img = pygame.transform.scale(map_img, self.size)
 
         self.screen = pygame.display.set_mode(self.size)

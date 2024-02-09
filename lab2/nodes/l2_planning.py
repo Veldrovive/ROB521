@@ -9,12 +9,16 @@ import matplotlib.image as mpimg
 from skimage.draw import disk
 from scipy.linalg import block_diag
 from scipy.ndimage import binary_dilation
+import os
 
 import matplotlib.pyplot as plt
 
 
 def load_map(filename):
-    im = mpimg.imread("../maps/" + filename)
+    try:
+        im = mpimg.imread("../maps/" + filename)
+    except FileNotFoundError:
+        im = mpimg.imread("./lab2/maps/" + filename)
     if len(im.shape) > 2:
         im = im[:,:,0]
     im_np = np.array(im)  #Whitespace is true, black is false
@@ -23,17 +27,29 @@ def load_map(filename):
 
 
 def load_map_yaml(filename):
-    with open("../maps/" + filename, "r") as stream:
+    file_path = "../maps/" + filename
+    if not os.path.exists(file_path):
+        file_path = "./lab2/maps/" + filename
+    with open(file_path, "r") as stream:
             map_settings_dict = yaml.safe_load(stream)
     return map_settings_dict
 
 #Node for building a graph
 class Node:
-    def __init__(self, point, parent_id, cost):
+    def __init__(self, point, parent_id, cost, trajectory_cost):
         self.point = point # A 3 by 1 vector [x, y, theta]
         self.parent_id = parent_id # The parent node id that leads to this node (There should only every be one parent in RRT)
         self.cost = cost # The cost to come to this node
+        self.trajectory_cost = trajectory_cost # The cost of the individual trajectory from the parent to this node
         self.children_ids = [] # The children node ids of this node
+        return
+
+    def add_child(self, child_id):
+        self.children_ids.append(child_id)
+        return
+
+    def remove_child(self, child_id):
+        self.children_ids.remove(child_id)
         return
 
 class TrajectorySpec:
@@ -84,7 +100,7 @@ class PathPlanner:
         self.trajectory_type = "straight" #Options are "circular" or "straight"
 
         #Planning storage
-        self.nodes = [Node(np.zeros(3), -1, 0)]
+        self.nodes = [Node(np.zeros(3), -1, 0, 0)]
         # self.nodes = [Node(np.array([3, 2, -np.pi/6]), -1, 0)]
         self.used_nodes = set()  # hash set of (x, y) tuples
 
@@ -168,15 +184,20 @@ class PathPlanner:
         if was_none:
             plt.show()
 
-    def add_point(self, point, theta, parent_index, cost):
+    def add_point(self, point, theta, parent_index, cost, trajectory_cost):
         point_tup = (point[0], point[1])
-        node = Node(np.array([point[0], point[1], theta]), parent_index, cost)
+        node = Node(np.array([point[0], point[1], theta]), parent_index, cost, trajectory_cost)
         self.nodes.append(node)
         self.used_nodes.add(point_tup)
+
+        # Update the parent node to include the new node as a child
+        self.nodes[parent_index].add_child(len(self.nodes) - 1)
 
         if self.object_bias_nearby:
             # Then we need to update the near edge distribution to include the new node
             self.update_distance_distribution(point)
+
+        return node
 
     def sample_free_space(self):
         #Sample a point from the free space
@@ -376,7 +397,7 @@ class PathPlanner:
         robot_traj_xy = (T_0R @ np.vstack((robot_traj[:2, :], np.ones(robot_traj.shape[1]))))[:2, :]
         # Add back in the theta rotated by the initial angle
         robot_traj = np.vstack((robot_traj_xy, robot_traj[2, :] + node_i.point[2]))
-        return robot_traj
+        return robot_traj, trajectory_spec.p1_T + trajectory_spec.p2_T
     
     def robot_controller(self, T_R0, point_s) -> TrajectorySpec:
         #This controller determines the velocities that will nominally move the robot from node i to node s
@@ -462,25 +483,63 @@ class PathPlanner:
         card_V = len(self.nodes)
         return min(self.gamma_RRT * (np.log(card_V) / card_V ) ** (1.0/2.0), self.epsilon)
     
-    def connect_node_to_point(self, node_i, point_f):
-        #Given two nodes find the non-holonomic path that connects them
-        #Settings
-        #node is a 3 by 1 node
-        #point is a 2 by 1 point
-        print("TO DO: Implement a way to connect two already existing nodes (for rewiring).")
-        return np.zeros((3, self.num_substeps))
+    # def connect_node_to_point(self, node_i, point_f):
+    #     #Given two nodes find the non-holonomic path that connects them
+    #     #Settings
+    #     #node is a 3 by 1 node
+    #     #point is a 2 by 1 point
+    #     print("TO DO: Implement a way to connect two already existing nodes (for rewiring).")
+    #     return np.zeros((3, self.num_substeps))
     
-    def cost_to_come(self, trajectory_o):
-        #The cost to get to a node from lavalle 
-        print("TO DO: Implement a cost to come metric")
-        return 0
+    # def cost_to_come(self, trajectory_o):
+    #     #The cost to get to a node from lavalle 
+    #     print("TO DO: Implement a cost to come metric")
+    #     return 0
+
+    def get_nearby_nodes(self, node: Node) -> list[int]:
+        """
+        Finds all nodes that are within ball_radius of the given node
+        """
+        nearby_nodes = []
+        ball_radius_sqr = self.ball_radius() ** 2
+        for other_node_id in range(len(self.nodes)):
+            other_node = self.nodes[other_node_id]
+            if other_node == node:
+                continue
+            dist_sqr = np.sum((node.point[:2] - other_node.point[:2]) ** 2)
+            if dist_sqr < ball_radius_sqr:
+                nearby_nodes.append(other_node_id)
+        return nearby_nodes
+
+    def rewire_node(self, to_rewire_node_id: int, new_parent_node_id: int, new_trajectory_cost: float):
+        """
+        Rewires the given node to have a new parent and a new trajectory cost
+        """
+        to_rewire_node = self.nodes[to_rewire_node_id]
+        old_parent_id = to_rewire_node.parent_id
+        new_parent_node = self.nodes[new_parent_node_id]
+        old_parent_node = self.nodes[old_parent_id]
+
+        to_rewire_node.parent_id = new_parent_node_id
+        to_rewire_node.trajectory_cost = new_trajectory_cost
+        to_rewire_node.cost = new_parent_node.cost + new_trajectory_cost
+        # Remove the node from the old parent's children
+        old_parent_node.remove_child(to_rewire_node_id)
+        # Add the node to the new parent's children
+        new_parent_node.add_child(to_rewire_node_id)
+        # Update the children of the node
+        self.update_children(to_rewire_node_id)
     
     def update_children(self, node_id):
         #Given a node_id with a changed cost, update all connected nodes with the new cost
-        print("TO DO: Update the costs of connected nodes after rewiring.")
-        return
+        #We assume that the trajectory has not changed so the new cost is node_i.cost + child.trajectory_cost
+        node = self.nodes[node_id]
+        for child_id in node.children_ids:
+            child = self.nodes[child_id]
+            child.cost = node.cost + child.trajectory_cost
+            self.update_children(child_id)
 
-    def visualize_tree(self):
+    def visualize_tree(self, show_path=False):
         fig = plt.figure(figsize=(10, 10))  # You can adjust the figure size as needed
         occupancy_map = self.occupancy_map.copy()  # 0 is occupied, 1 is free
         for node in self.nodes:
@@ -497,6 +556,14 @@ class PathPlanner:
         # Plot the goal point
         x, y = self.point_to_cell(self.goal_point)
         plt.plot(x, y, 'go')
+
+        if show_path:
+            path = self.recover_path()
+            for i in range(1, len(path)):
+                x, y = self.point_to_cell(path[i - 1][:2].reshape(2, 1))
+                x_next, y_next = self.point_to_cell(path[i][:2].reshape(2, 1))
+                plt.plot([x, x_next], [y, y_next], color="green")
+
 
         plt.show()
 
@@ -528,7 +595,7 @@ class PathPlanner:
                 continue
 
             #Simulate driving the robot towards the closest point
-            trajectory_o = self.simulate_trajectory(closes_node, point)
+            trajectory_o, trajectory_cost = self.simulate_trajectory(closes_node, point)
 
             if len(trajectory_o) == 0:
                 # print(f"Trajectory from {closes_node.point[:2]} to {point} is empty. Skipping.")
@@ -548,7 +615,7 @@ class PathPlanner:
                 # print(f"Collision detected at point {point}. Skipping.")
                 continue
 
-            if count % 1000 == 0:
+            if count % 1000 == 0 and False:
                 fig, ax = plt.subplots(1, 3, figsize=(10, 5))
                 # Plot the trajectory
                 ax[0].plot(trajectory_o[0, :], trajectory_o[1, :], 'r')
@@ -588,7 +655,7 @@ class PathPlanner:
 
             # Add the point to the tree
             # RRT does not have a cost to come
-            self.add_point(point, trajectory_o[2, -1], closest_node_id, -1)
+            self.add_point(point, trajectory_o[2, -1], closest_node_id, -1, -1)
             count += 1
             print(f"Added point {point} to the tree with parent {closes_node.point[:2]}")
             
@@ -601,28 +668,107 @@ class PathPlanner:
         return self.nodes
     
     def rrt_star_planning(self):
-        #This function performs RRT* for the given map and robot        
-        for i in range(1): #Most likely need more iterations than this to complete the map!
+        #This function performs RRT* for the given map and robot       
+        end_count = np.inf 
+        count = 0
+        while count < end_count: #Most likely need more iterations than this to complete the map!
+            
+
             #Sample
             point = self.sample_map_space()
 
             #Closest Node
             closest_node_id = self.closest_node(point)
+            closest_node = self.nodes[closest_node_id]
 
-            #Simulate trajectory
-            trajectory_o = self.simulate_trajectory(self.nodes[closest_node_id], point)  # 3xN (y, x, theta)
+            def get_valid_trajectory(node_i, point_f):
+                """
+                Gets a trajectory from node_i to point_f if it exists
+                Returns:
+                    trajectory_o: The trajectory
+                    trajectory_cost: The cost of the trajectory
+                Or both are None if the trajectory is invalid
+                """
+                #Simulate trajectory
+                trajectory_o, trajectory_cost = self.simulate_trajectory(node_i, point_f)  # 3xN (y, x, theta)
+                if len(trajectory_o) == 0:
+                    # print(f"Trajectory from {closes_node.point[:2]} to {point} is empty. Skipping.")
+                    return None, None
 
-            #Check for Collision
-            print("TO DO: Check for collision.")
+                #Check for Collision
+                try:
+                    ri_x, ri_y = self.points_to_robot_circle(trajectory_o[:2, :])
+                except ValueError as e:
+                    # I give up. I don't know what's causing it.
+                    print(f"Error: {e}")
+                    return None, None
+
+                # We can check for intersection by indexing the occupancy map with the robot's footprint
+                # In the occupancy map, 0 is occupied and 1 is free
+                if np.any(self.occupancy_map[ri_y, ri_x] == 0):
+                    # print(f"Collision detected at point {point}. Skipping.")
+                    return None, None
+                
+                return trajectory_o, trajectory_cost
+
+            trajectory_o, trajectory_cost = get_valid_trajectory(closest_node, point)
+            if trajectory_o is None:
+                continue
+
+            # Compute the cost to come. This is the cost to come of the parent plus the cost of the trajectory
+            cost_to_come = closest_node.cost + trajectory_cost
+            # Now we can add the node to the tree
+            new_node = self.add_point(point, trajectory_o[2, -1], closest_node_id, cost_to_come, trajectory_cost)
+            new_node_id = len(self.nodes) - 1
 
             #Last node rewire
-            print("TO DO: Last node rewiring")
+            # Steps:
+            # 1: Find all nodes within the ball radius
+            # 2: For each node, check if a trajectory from that node to the new node is collision free
+            # 3: If it is, check if the cost to come is less than the current cost to come
+            nearby_node_ids = self.get_nearby_nodes(new_node)
+            new_parent_node_id = None
+            best_cost_to_come = cost_to_come
+            new_trajectory_cost = -1
+            for nearby_node_id in nearby_node_ids:
+                nearby_node = self.nodes[nearby_node_id]
+                # Check if the trajectory is collision free
+                trajectory_o, trajectory_cost = get_valid_trajectory(nearby_node, point)
+                if trajectory_o is not None:
+                    # Compute the cost to come
+                    new_cost_to_come = nearby_node.cost + trajectory_cost
+                    if new_cost_to_come < best_cost_to_come:
+                        new_parent_node_id = nearby_node_id
+                        best_cost_to_come = new_cost_to_come
+                        new_trajectory_cost = trajectory_cost
+            if new_parent_node_id is not None:
+                # Then we need to rewire the tree
+                print(f"Rewiring new node {new_node.point[:2]} to parent {self.nodes[new_parent_node_id].point[:2]} with cost {best_cost_to_come}")
+                self.rewire_node(new_node_id, new_parent_node_id, new_trajectory_cost)
 
             #Close node rewire
-            print("TO DO: Near point rewiring")
+            to_rewire_ids = nearby_node_ids.copy()
+            for node_id in to_rewire_ids:
+                node = self.nodes[node_id]
+                # Check if the trajectory from the new node to the old node is collision free
+                trajectory_o, trajectory_cost = get_valid_trajectory(new_node, node.point[:2])  # TODO: It would be more efficient to check if the cost is lower before doing collision checking.
+                if trajectory_o is None:
+                    continue
+                # Compute the cost to come
+                new_cost_to_come = new_node.cost + trajectory_cost
+                if new_cost_to_come < node.cost:
+                    print(f"Rewiring node {node.point[:2]} to new node {new_node.point[:2]} with cost {new_cost_to_come}")
+                    self.rewire_node(node_id, new_node_id, trajectory_cost)
 
             #Check for early end
-            print("TO DO: Check for early end")
+            #Check if goal has been reached
+            print(f"Distance to goal: {np.linalg.norm(point - self.goal_point.flatten())}. Needs to be less than {self.stopping_dist}")
+            if np.linalg.norm(point - self.goal_point.flatten()) < self.stopping_dist:
+                print("Goal Reached!")
+                if end_count == np.inf:
+                    end_count = 2*count
+            count += 1
+        self.visualize_tree()
         return self.nodes
     
     def recover_path(self, node_id = -1):
@@ -653,7 +799,8 @@ def main():
 
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
-    nodes = path_planner.rrt_planning()
+    # nodes = path_planner.rrt_planning()
+    nodes = path_planner.rrt_star_planning()
     path = path_planner.recover_path()
     node_path_metric = np.hstack(path)
 

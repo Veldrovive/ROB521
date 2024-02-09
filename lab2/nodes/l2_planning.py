@@ -523,6 +523,10 @@ class PathPlanner:
         to_rewire_node.parent_id = new_parent_node_id
         to_rewire_node.trajectory_cost = new_trajectory_cost
         to_rewire_node.cost = new_parent_node.cost + new_trajectory_cost
+
+        # Set the theta to point from the new parent to the node
+        to_rewire_node.point[2] = np.arctan2(to_rewire_node.point[1] - new_parent_node.point[1], to_rewire_node.point[0] - new_parent_node.point[0])
+
         # Remove the node from the old parent's children
         old_parent_node.remove_child(to_rewire_node_id)
         # Add the node to the new parent's children
@@ -817,10 +821,10 @@ def main():
     # map_setings_filename = "myhal.yaml"
 
     #robot information
-    # goal_point = np.array([[9], [4]]) #m
+    goal_point = np.array([[9], [4]]) #m
     # goal_point = np.array([[9], [0]]) #m
     # goal_point = np.array([[20], [8]]) #m
-    goal_point = np.array([[41.5], [-44.5]]) #m
+    # goal_point = np.array([[41.5], [-44.5]]) #m
     # goal_point = np.array([[20], [-30]]) #m
     # goal_point = np.array([[7], [2]]) #m
     stopping_dist = 0.5 #m

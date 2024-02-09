@@ -821,10 +821,10 @@ def main():
     # map_setings_filename = "myhal.yaml"
 
     #robot information
-    goal_point = np.array([[9], [4]]) #m
+    # goal_point = np.array([[9], [4]]) #m
     # goal_point = np.array([[9], [0]]) #m
     # goal_point = np.array([[20], [8]]) #m
-    # goal_point = np.array([[41.5], [-44.5]]) #m
+    goal_point = np.array([[41.5], [-44.5]]) #m
     # goal_point = np.array([[20], [-30]]) #m
     # goal_point = np.array([[7], [2]]) #m
     stopping_dist = 0.5 #m

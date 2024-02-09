@@ -20,9 +20,9 @@ import utils
 
 
 TRANS_GOAL_TOL = .1  # m, tolerance to consider a goal complete
-ROT_GOAL_TOL = 2*np.pi #.3  # rad, tolerance to consider a goal complete
+ROT_GOAL_TOL = 0.3  # rad, tolerance to consider a goal complete
 TRANS_VEL_OPTS = [0.2] #[0, 0.13, 0.20, 0.23, 0.25, 0.257, 0.26]  # m/s, max of real robot is .26
-ROT_VEL_OPTS = [-0.8, -0.1, 0, 0.1, 0.8] #np.linspace(-1.82, 1.82, 21)  # rad/s, max of real robot is 1.82
+ROT_VEL_OPTS = [-0.8, -0.4, -0.1, 0, 0.1, 0.4, 0.8] #np.linspace(-1.82, 1.82, 21)  # rad/s, max of real robot is 1.82
 CONTROL_RATE = 5  # Hz, how frequently control signals are sent
 CONTROL_HORIZON = 3 #5  # seconds. if this is set too high and INTEGRATION_DT is too low, code will take a long time to run!
 INTEGRATION_DT = 0.1 #.025  # s, delta t to propagate trajectories forward by
@@ -95,8 +95,8 @@ class PathFollower():
         cur_dir = os.path.dirname(os.path.realpath(__file__))
 
         # to use the temp hardcoded paths above, switch the comment on the following two lines
-        # self.path_tuples = np.load(os.path.join(cur_dir, 'path.npy')).T
-        self.path_tuples = np.array(TEMP_HARDCODE_PATH)
+        self.path_tuples = np.load(os.path.join(cur_dir, 'shortest_path.npy')).T
+        # self.path_tuples = np.array(TEMP_HARDCODE_PATH)
 
         self.path = utils.se2_pose_list_to_path(self.path_tuples, 'map')
         self.global_path_pub.publish(self.path)
@@ -244,7 +244,6 @@ class PathFollower():
         self.control = [None, None]
         while not rospy.is_shutdown():
             print(f"Pose: x={self.pose_in_map_np[0]}, y={self.pose_in_map_np[1]}, theta={self.pose_in_map_np[2]}, goal: {self.cur_path_index}")
-            self.rate.sleep()
             # timing for debugging...loop time should be less than 1/CONTROL_RATE
             tic = rospy.Time.now()
 
@@ -274,7 +273,7 @@ class PathFollower():
                 global_theta = trajectory_theta + self.pose_in_map_np[2]  # Mx1
                 global_trajectories[:, opt_ind] = np.hstack([global_trajectory_hom[:, :2], global_theta[:, None]])
 
-            if self.control[0] == 0 or True:
+            if self.control[0] == 0:
                 # Now we visualize all these trajectories in the global frame using matplotlib
                 fig, ax = plt.subplots()
                 # Plot each trajectory as a line
@@ -380,7 +379,7 @@ class PathFollower():
                 #     control = self.all_opts[best_opt]
                 #     self.local_path_pub.publish(utils.se2_pose_list_to_path(local_paths[:, best_opt], 'map'))
 
-                # final_positions = valid_trajectories[-1, :, :2]  # M'x2
+                final_positions = valid_trajectories[-1, :, :2]  # M'x2
                 # # TODO: This is a bad way of generating the cost function. It assumes that the only way the robot can be at the goal is if it is at the goal at the last timestep.
                 # # The correct way to do this would be to select the point in each trajectory that we are closest to the goal and use that as the "final position".
 
@@ -394,23 +393,39 @@ class PathFollower():
                 closest_goal_index = goal_squared_distance.argmin(axis=0)  # M'
                 # Select the position of the closest point to the goal for each trajectory
                 # Why doesn't : work for dimension 1? It should be the same as np.arange(valid_trajectories.shape[1])?
-                final_positions = valid_trajectories[closest_goal_index, np.arange(valid_trajectories.shape[1]), :2]  # M'x2
+                closest_positions = valid_trajectories[closest_goal_index, np.arange(valid_trajectories.shape[1]), :2]  # M'x2
+
+                
+                cost_positions = final_positions
 
                 # Now we can compute the cost function
-                goal_diff = final_positions - self.cur_goal[:2]
+                # First, we compute a euclidian distance cost
+                goal_diff = cost_positions - self.cur_goal[:2]  # M'x2
                 goal_distance = np.linalg.norm(goal_diff, axis=1)  # Measures similarity to the goal in meters
+
+                # Then we compute an angle similarity cost
                 theta_cosine_similarity = np.cos(valid_trajectories[-1, :, 2] - self.cur_goal[2])  # Measures similarity to the goal in a unitless way
                 # We want a angle cost that varies from 0 to 1. It is 0 when the angle is exactly correct and 1 when the angle is 180 degrees off
                 angle_distance = 1 - (theta_cosine_similarity + 1) / 2
+
+                # And finally, we compute a cost for being far from the line extending from the goal given the goal angle
+                # The first step is to compute a unit vector in the direction of the goal angle
+                goal_angle_unit_vector = np.array([np.cos(self.cur_goal[2]), np.sin(self.cur_goal[2])])  # 2
+                # We can then compute the orthogonal distance as sqrt(||v||^2 - (v . u)^2) where u is the unit vector in the direction of the goal angle and v is the vector from the goal to the final position
+                # Note that we already have ||v|| from the goal distance computation
+                goal_diff_orthogonal_distance = np.sqrt(goal_distance ** 2 - np.sum(goal_diff * goal_angle_unit_vector, axis=1) ** 2)  # Measures similarity to the goal in meters
+
+                alpha = 1.0  # Weighting for the distance to the Goal. Unitless
                 beta = 0.0  # Weighting for the angle distance. Expressed in meters. Can be understood as the corresponding distance for being completely off angle
+                cappa = 1.0  # Weighting for the distance to the line. Unitless.
 
                 # An even better approach would be to compute the cost function at each timestep and then to the min over those, but I can't be bothered to figure out
                 # how to do that right now. This also allows us to make the cost function more complex without sacrificing efficiency.
 
                 # The cost is then the sum of the distance to the goal and the angle distance
-                final_cost = goal_distance + beta * angle_distance
+                final_cost = alpha*goal_distance + beta*angle_distance + cappa*goal_diff_orthogonal_distance
                 final_cost -= TRANS_GOAL_TOL - 0.05
-                final_cost[final_cost < 0] = 0
+                final_cost[goal_distance < 0] = 0
                 if np.any(final_cost == 0):
                     print(final_cost.shape)
                     zero_cost_indices = np.argwhere(final_cost == 0).flatten()

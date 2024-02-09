@@ -810,27 +810,27 @@ class PathPlanner:
 
 def main():
     #Set map information
-    # map_filename = "willowgarageworld_05res.png"
-    # map_setings_filename = "willowgarageworld_05res.yaml"
+    map_filename = "willowgarageworld_05res.png"
+    map_setings_filename = "willowgarageworld_05res.yaml"
 
-    map_filename = "myhal.png"
-    map_setings_filename = "myhal.yaml"
+    # map_filename = "myhal.png"
+    # map_setings_filename = "myhal.yaml"
 
     #robot information
     # goal_point = np.array([[9], [4]]) #m
     # goal_point = np.array([[9], [0]]) #m
     # goal_point = np.array([[20], [8]]) #m
-    # goal_point = np.array([[41.5], [-44.5]]) #m
+    goal_point = np.array([[41.5], [-44.5]]) #m
     # goal_point = np.array([[20], [-30]]) #m
     # goal_point = np.array([[7], [2]]) #m
     stopping_dist = 0.5 #m
 
-    goal_point = np.array([[7], [0]]) #m
+    # goal_point = np.array([[7], [0]]) #m
 
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)
     # nodes = path_planner.rrt_planning()
-    nodes = path_planner.rrt_star_planning()
+    nodes = path_planner.rrt_star_planning(recursive=True)
     best_node = path_planner.find_best_node()
     path = path_planner.recover_path(best_node)
     node_path_metric = np.hstack(path)

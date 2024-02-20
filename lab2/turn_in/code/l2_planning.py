@@ -757,8 +757,8 @@ class PathPlanner:
             # for node_id in to_rewire_ids:
             while len(to_rewire_ids) > 0:
                 node_id = to_rewire_ids.pop(0)
-                # if node_id in rewired_set:
-                #     continue
+                if node_id in rewired_set:
+                    continue
                 rewired_set.add(node_id)
                 node = self.nodes[node_id]
                 # Check if the trajectory from the new node to the old node is collision free
@@ -814,22 +814,22 @@ class PathPlanner:
 
 def main():
     #Set map information
-    # map_filename = "willowgarageworld_05res.png"
-    # map_setings_filename = "willowgarageworld_05res.yaml"
+    map_filename = "willowgarageworld_05res.png"
+    map_setings_filename = "willowgarageworld_05res.yaml"
 
-    map_filename = "myhal.png"
-    map_setings_filename = "myhal.yaml"
+    # map_filename = "myhal.png"
+    # map_setings_filename = "myhal.yaml"
 
     #robot information
     # goal_point = np.array([[9], [4]]) #m
     # goal_point = np.array([[9], [0]]) #m
     # goal_point = np.array([[20], [8]]) #m
-    # goal_point = np.array([[41.5], [-44.5]]) #m
+    goal_point = np.array([[41.5], [-44.5]]) #m
     # goal_point = np.array([[20], [-30]]) #m
     # goal_point = np.array([[7], [2]]) #m
     stopping_dist = 0.5 #m
 
-    goal_point = np.array([[7], [0]]) #m
+    # goal_point = np.array([[7], [0]]) #m
 
     #RRT precursor
     path_planner = PathPlanner(map_filename, map_setings_filename, goal_point, stopping_dist)

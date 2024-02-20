@@ -32,255 +32,241 @@ clear; close all; clc;
 % set random seed for repeatability if desired
 % rng(1);
 
-% % ==========================
-% % Maze Generation
-% % ==========================
-% %
-% % The maze function returns a map object with all of the edges in the maze.
-% % Each row of the map structure draws a single line of the maze.  The
-% % function returns the lines with coordinates [x1 y1 x2 y2].
-% % Bottom left corner of maze is [0.5 0.5], 
-% % Top right corner is [col+0.5 row+0.5]
-% %
-% 
-% row = 5; % Maze rows
-% col = 7; % Maze columns
-% map = maze(row,col); % Creates the maze
-% start = [0.5, 1.0]; % Start at the bottom left
-% finish = [col+0.5, row]; % Finish at the top right
-% 
-% h = figure(1);clf; hold on;
-% plot(start(1), start(2),'go')
-% plot(finish(1), finish(2),'rx')
-% show_maze(map,row,col,h); % Draws the maze
-% drawnow;
-% 
-% 
-% 
-% % ======================================================
-% % Question 1: construct a PRM connecting start and finish
-% % ======================================================
-% %
-% % Using 500 samples, construct a PRM graph whose milestones stay at least 
-% % 0.1 units away from all walls, using the MinDist2Edges function provided for 
-% % collision detection.  Use a nearest neighbour connection strategy and the 
-% % CheckCollision function provided for collision checking, and find an 
-% % appropriate number of connections to ensure a connection from  start to 
-% % finish with high probability.
-% 
-% 
-% % variables to store PRM components
-% nS = 500; %500;  % number of samples to try for milestone creation
-% milestones = [start; finish];  % each row is a point [x y] in feasible space
-% edges = [];  % each row is should be an edge of the form [x1 y1 x2 y2]
-% 
-% disp("Time to create PRM graph")
-% tic;
-% % ------insert your PRM generation code here-------
-% 
-% % Steps:
-% % 1. Generate sample
-% % 2. Check for sample validity. If not valid, go back to 1.
-% % 3. For each of the k closest neighbors
-% % 3.1 Check if line between new point and neighbor intersects with an edge
-% % 3.2 If no intersection, add the edge to the edges list
-% 
-% c = 1;
-% r = 0;  % Keeping track of the number of rejected milestones
-% a = 0;  % Keeping track of the number of accepted milestones
-% k = 8;  % Use the top k neighbors for connection attempts
-% while a < nS
-%     % Draw a sample uniformly x in [0.5, col+0.5] y in [0.5, row+0.5]
-%     x = 0.5 + rand(1) * col;
-%     y = 0.5 + rand(1) * row;
-%     new_point = [x y];
-%     c = c+1;
-% 
-%     % Check for validitiy of the point using MinDist2Edges
-%     d = MinDist2Edges(new_point, map);
-%     if d <= 0.1
-%         % Then we reject the milestone for being too close to an edge
-%         r = r+1;
-%         continue
-%     end
-%     % Then we accept the new milestone and need to check for edges
-%     a = a+1;
-%     milestones = [milestones; new_point];
-%     % Compute a vector where each element is a squared distance to the
-%     % corresponding already existing milestone
-%     diff = milestones - new_point;
-%     squared_distances = sum(diff.^2, 2);
-%     % Then we get the top k neighbors
-%     [D, I] = mink(squared_distances, k);
-%     for i_index = 1:size(I)
-%         m_index = I(i_index);
-%         con_point = milestones(m_index, :);
-%         % Now we have our proposed point and a point to attempt to connect
-%         % it to. All we need to do is check if there is a wall collision
-%         % for the edge that connects them.
-%         [ inCollision, edge ] = CheckCollision(new_point, con_point, map);
-%         if ~inCollision
-%             % Then we are free to add the edge
-%             % The graph is undirected so we could add two for going both
-%             % ways, but we will assume we can just add one and further code
-%             % will account for this
-%             edges = [edges; new_point con_point];
-%         end
-%     end
-% end
-% 
-% 
-% 
-% 
-% % ------end of your PRM generation code -------
-% toc;
-% 
-% figure(1);
-% plot(milestones(:,1),milestones(:,2),'m.');
-% if (~isempty(edges))
-%     line(edges(:,1:2:3)', edges(:,2:2:4)','Color','magenta') % line uses [x1 x2 y1 y2]
-% end
-% str = sprintf('Q1 - %d X %d Maze PRM', row, col);
-% title(str);
-% drawnow;
-% 
-% print -dpng assignment1_q1.png
-% 
-% 
-% % =================================================================
-% % Question 2: Find the shortest path over the PRM graph
-% % =================================================================
-% %
-% % Using an optimal graph search method (Dijkstra's or A*) , find the 
-% % shortest path across the graph generated.  Please code your own 
-% % implementation instead of using any built in functions.
-% 
-% disp('Time to find shortest path');
-% tic;
-% 
-% % Variable to store shortest path
-% spath = []; % shortest path, stored as a milestone row index sequence
-% 
-% 
-% % ------insert your shortest path finding algorithm here-------
-% 
-% % We deal in node indices to avoid comparing float vectors
-% 
-% % Steps:
-% % 1. Initialize variables
-% % 1.1 Create the priority queue and initialize with the start milestone
-% % 1.2 Initialize the dead hash map that we will be using to check whether
-% %     we should expand a node
-% % 1.3 Initialize the parent map that we will use to recover the path
-% 
-% % disp("Testing pq");
-% % pq = MinPriorityQueue();
-% % pq = pq.add(2, "World"); % Reassign pq to capture the updated state
-% % pq = pq.add(1, "Hello ");  % Reassign pq to capture the updated state
-% % pq = pq.add(3, "!");  % Reassign pq to capture the updated state
-% % 
-% % while ~pq.isEmpty()
-% %     [priority, element, pq] = pq.pop(); % Capture the updated pq here as well
-% %     disp(element);
-% % end
-% 
-% pq = MinPriorityQueue();
-% pq = pq.add(calcHeuristic(start, finish), [1, -1]);  % The start node is at index 1 with parent -1
-% dead_set = false(1, size(milestones, 1));
-% % So dead_set(n) being true means that node has already been visited
-% parent_map = ones(1, size(milestones, 1)) * -1;
-% % parent_map(n) returns the parent of milestone index n
-% cost_to_come_map = ones(1, size(milestones, 1)) * -1;
-% cost_to_come_map(1) = 0;
-% % We initialize all cost-to-come values to -1 and then set the start to
-% % have a cost-to-come of 0
-% 
-% while ~pq.isEmpty()
-%     % Pop the lowest priority node
-%     [priority, cur_node_info, pq] = pq.pop();
-%     cur_node_index = cur_node_info(1);
-%     cur_node_parent_index = cur_node_info(2);
-%     cur_node = milestones(cur_node_index, :);
-% 
-%     if cur_node_parent_index >= 1
-%         parent_node = milestones(cur_node_parent_index, :);
-%     else
-%         parent_node = [-1, -1];
-%     end
-%     % disp(["Processing node" cur_node_index cur_node]);
-% 
-%     % Then we check if this node has been processed. Since the heuristic is
-%     % consistent, if the node has been processed we can skip it
-%     if dead_set(cur_node_index)
-%         continue
-%     end
-%     % Now we have processed it so we can set it to dead
-%     dead_set(cur_node_index) = true;
-% 
-%     if cur_node_index ~= 1
-%         % We can also now update the parent since we know this is the best
-%         % route to the current node
-%         parent_map(cur_node_index) = cur_node_parent_index;
-%         % At this point we can also update the cost to come
-%         cost_to_come_map(cur_node_index) = cost_to_come_map(cur_node_parent_index) + getEdgeCost(parent_node, cur_node);
-%     end
-% 
-%     if cur_node_index == 2
-%         % The finish is always the second element of the milestone list
-%         break;
-%     end
-% 
-%     % Otherwise we need to iterate over the neighbors
-%     neighbors = getNeighbors(cur_node, edges);
-%     for n_index = 1:size(neighbors, 1)
-%         % For each neighbor, we now compute the node info and the estimated
-%         % total cost and add it into the priority queue
-%         neighbor = neighbors(n_index, :);
-%         neighbor_index = getNodeIndex(neighbor, milestones);
-% 
-%         % We could check if the neighbor is dead and skip it if it is
-% 
-%         % Create a new node info. The current node is now the parent
-%         node_info = [neighbor_index, cur_node_index];
-%         % Then we need to get the priority
-%         cost_to_come = cost_to_come_map(cur_node_index) + getEdgeCost(cur_node, neighbor);
-%         estimated_total_cost = cost_to_come + calcHeuristic(neighbor, finish);
-% 
-%         pq = pq.add(estimated_total_cost, [neighbor_index, cur_node_index]);
-%     end
-% end
-% 
-% if parent_map(2) == -1
-%     % Then there was no path found
-%     error("No path found")
-% end
-% 
-% % Otherwise, we can trace back through the parents to find the path
-% parent_index = 2;
-% while parent_index ~= -1
-%     spath = [parent_index spath];
-%     parent_index = parent_map(parent_index);
-% end
-% 
-% % disp(spath)
-% 
-% 
-% 
-% 
-% 
-% % ------end of shortest path finding algorithm------- 
-% toc;    
-% 
-% % plot the shortest path
-% figure(1);
-% for i=1:length(spath)-1
-%     plot(milestones(spath(i:i+1),1),milestones(spath(i:i+1),2), 'go-', 'LineWidth',3);
-% end
-% str = sprintf('Q2 - %d X %d Maze Shortest Path', row, col);
-% title(str);
-% drawnow;
-% 
-% print -dpng assingment1_q2.png
+% ==========================
+% Maze Generation
+% ==========================
+%
+% The maze function returns a map object with all of the edges in the maze.
+% Each row of the map structure draws a single line of the maze.  The
+% function returns the lines with coordinates [x1 y1 x2 y2].
+% Bottom left corner of maze is [0.5 0.5], 
+% Top right corner is [col+0.5 row+0.5]
+%
+
+row = 5; % Maze rows
+col = 7; % Maze columns
+map = maze(row,col); % Creates the maze
+start = [0.5, 1.0]; % Start at the bottom left
+finish = [col+0.5, row]; % Finish at the top right
+
+h = figure(1);clf; hold on;
+plot(start(1), start(2),'go')
+plot(finish(1), finish(2),'rx')
+show_maze(map,row,col,h); % Draws the maze
+drawnow;
+
+
+
+% ======================================================
+% Question 1: construct a PRM connecting start and finish
+% ======================================================
+%
+% Using 500 samples, construct a PRM graph whose milestones stay at least 
+% 0.1 units away from all walls, using the MinDist2Edges function provided for 
+% collision detection.  Use a nearest neighbour connection strategy and the 
+% CheckCollision function provided for collision checking, and find an 
+% appropriate number of connections to ensure a connection from  start to 
+% finish with high probability.
+
+
+% variables to store PRM components
+nS = 500; %500;  % number of samples to try for milestone creation
+milestones = [start; finish];  % each row is a point [x y] in feasible space
+edges = [];  % each row is should be an edge of the form [x1 y1 x2 y2]
+
+disp("Time to create PRM graph")
+tic;
+% ------insert your PRM generation code here-------
+
+% Steps:
+% 1. Generate sample
+% 2. Check for sample validity. If not valid, go back to 1.
+% 3. For each of the k closest neighbors
+% 3.1 Check if line between new point and neighbor intersects with an edge
+% 3.2 If no intersection, add the edge to the edges list
+
+c = 1;
+r = 0;  % Keeping track of the number of rejected milestones
+a = 0;  % Keeping track of the number of accepted milestones
+k = 8;  % Use the top k neighbors for connection attempts
+while a < nS
+    % Draw a sample uniformly x in [0.5, col+0.5] y in [0.5, row+0.5]
+    x = 0.5 + rand(1) * col;
+    y = 0.5 + rand(1) * row;
+    new_point = [x y];
+    c = c+1;
+
+    % Check for validitiy of the point using MinDist2Edges
+    d = MinDist2Edges(new_point, map);
+    if d <= 0.1
+        % Then we reject the milestone for being too close to an edge
+        r = r+1;
+        continue
+    end
+    % Then we accept the new milestone and need to check for edges
+    a = a+1;
+    milestones = [milestones; new_point];
+    % Compute a vector where each element is a squared distance to the
+    % corresponding already existing milestone
+    diff = milestones - new_point;
+    squared_distances = sum(diff.^2, 2);
+    % Then we get the top k neighbors
+    [D, I] = mink(squared_distances, k);
+    for i_index = 1:size(I)
+        m_index = I(i_index);
+        con_point = milestones(m_index, :);
+        % Now we have our proposed point and a point to attempt to connect
+        % it to. All we need to do is check if there is a wall collision
+        % for the edge that connects them.
+        [ inCollision, edge ] = CheckCollision(new_point, con_point, map);
+        if ~inCollision
+            % Then we are free to add the edge
+            % The graph is undirected so we could add two for going both
+            % ways, but we will assume we can just add one and further code
+            % will account for this
+            edges = [edges; new_point con_point];
+        end
+    end
+end
+
+% ------end of your PRM generation code -------
+toc;
+
+figure(1);
+plot(milestones(:,1),milestones(:,2),'m.');
+if (~isempty(edges))
+    line(edges(:,1:2:3)', edges(:,2:2:4)','Color','magenta') % line uses [x1 x2 y1 y2]
+end
+str = sprintf('Q1 - %d X %d Maze PRM', row, col);
+title(str);
+drawnow;
+
+print -dpng assignment1_q1.png
+
+
+% =================================================================
+% Question 2: Find the shortest path over the PRM graph
+% =================================================================
+%
+% Using an optimal graph search method (Dijkstra's or A*) , find the 
+% shortest path across the graph generated.  Please code your own 
+% implementation instead of using any built in functions.
+
+disp('Time to find shortest path');
+tic;
+
+% Variable to store shortest path
+spath = []; % shortest path, stored as a milestone row index sequence
+
+
+% ------insert your shortest path finding algorithm here-------
+
+% We deal in node indices to avoid comparing float vectors
+
+% Steps:
+% 1. Initialize variables
+% 1.1 Create the priority queue and initialize with the start milestone
+% 1.2 Initialize the dead hash map that we will be using to check whether
+%     we should expand a node
+% 1.3 Initialize the parent map that we will use to recover the path
+
+pq = MinPriorityQueue();
+pq = pq.add(calcHeuristic(start, finish), [1, -1]);  % The start node is at index 1 with parent -1
+dead_set = false(1, size(milestones, 1));
+% So dead_set(n) being true means that node has already been visited
+parent_map = ones(1, size(milestones, 1)) * -1;
+% parent_map(n) returns the parent of milestone index n
+cost_to_come_map = ones(1, size(milestones, 1)) * -1;
+cost_to_come_map(1) = 0;
+% We initialize all cost-to-come values to -1 and then set the start to
+% have a cost-to-come of 0
+
+while ~pq.isEmpty()
+    % Pop the lowest priority node
+    [priority, cur_node_info, pq] = pq.pop();
+    cur_node_index = cur_node_info(1);
+    cur_node_parent_index = cur_node_info(2);
+    cur_node = milestones(cur_node_index, :);
+
+    if cur_node_parent_index >= 1
+        parent_node = milestones(cur_node_parent_index, :);
+    else
+        parent_node = [-1, -1];
+    end
+    % disp(["Processing node" cur_node_index cur_node]);
+
+    % Then we check if this node has been processed. Since the heuristic is
+    % consistent, if the node has been processed we can skip it
+    if dead_set(cur_node_index)
+        continue
+    end
+    % Now we have processed it so we can set it to dead
+    dead_set(cur_node_index) = true;
+
+    if cur_node_index ~= 1
+        % We can also now update the parent since we know this is the best
+        % route to the current node
+        parent_map(cur_node_index) = cur_node_parent_index;
+        % At this point we can also update the cost to come
+        cost_to_come_map(cur_node_index) = cost_to_come_map(cur_node_parent_index) + getEdgeCost(parent_node, cur_node);
+    end
+
+    if cur_node_index == 2
+        % The finish is always the second element of the milestone list
+        break;
+    end
+
+    % Otherwise we need to iterate over the neighbors
+    neighbors = getNeighbors(cur_node, edges);
+    for n_index = 1:size(neighbors, 1)
+        % For each neighbor, we now compute the node info and the estimated
+        % total cost and add it into the priority queue
+        neighbor = neighbors(n_index, :);
+        neighbor_index = getNodeIndex(neighbor, milestones);
+
+        % We could check if the neighbor is dead and skip it if it is
+
+        % Create a new node info. The current node is now the parent
+        node_info = [neighbor_index, cur_node_index];
+        % Then we need to get the priority
+        cost_to_come = cost_to_come_map(cur_node_index) + getEdgeCost(cur_node, neighbor);
+        estimated_total_cost = cost_to_come + calcHeuristic(neighbor, finish);
+
+        pq = pq.add(estimated_total_cost, [neighbor_index, cur_node_index]);
+    end
+end
+
+if parent_map(2) == -1
+    % Then there was no path found
+    error("No path found")
+end
+
+% Otherwise, we can trace back through the parents to find the path
+parent_index = 2;
+while parent_index ~= -1
+    spath = [parent_index spath];
+    parent_index = parent_map(parent_index);
+end
+
+% disp(spath)
+
+
+
+
+
+% ------end of shortest path finding algorithm------- 
+toc;    
+
+% plot the shortest path
+figure(1);
+for i=1:length(spath)-1
+    plot(milestones(spath(i:i+1),1),milestones(spath(i:i+1),2), 'go-', 'LineWidth',3);
+end
+str = sprintf('Q2 - %d X %d Maze Shortest Path', row, col);
+title(str);
+drawnow;
+
+print -dpng assingment1_q2.png
 
 
 % ================================================================
@@ -294,8 +280,8 @@ clear; close all; clc;
 % full marks)
 
 
-row = 40;
-col = 40;
+row = 41;
+col = 41;
 map = maze(row,col);
 start = [0.5, 1.0];
 finish = [col+0.5, row];
@@ -312,12 +298,25 @@ fprintf("Attempting large %d X %d maze... \n", row, col);
 tic;        
 % ------insert your optimized algorithm here------
 
-nS = 6000;  % We use this to be the number of valid nodes so that we can pre-allocate our adjacency list
-wall_avoidance_radius = 0.1;
+% Changes:
+% 1. Lazy collision checking. Only check if edges collide with walls when
+% A* is exploring that path.
+% 2. Use an occupation map instead of checking distance to walls. This
+% converts an expensive O(E) task to a O(1) task.
+% 3. Use an adjacency list instead of an edges list. With an edges list we
+% need to search through all edges to find the neighbors, but with an
+% adjacency list it is an O(1) lookup. We still construct an edges list
+% when A* is running, but it only includes edges that we explored.
+
+nS = 8000;  % We use this to be the number of valid nodes so that we can pre-allocate our adjacency list
 
 % An adjacency map will be efficient here as the number of neighbors is
 % limited to be small
 adjacency_list = cell(nS, 1);
+
+% An occupancy map will allow us to do efficient checking for being within
+% the allowed area
+occ_map = build_occ_map(col, row, map);
 
 c = 1;
 r = 0;  % Keeping track of the number of rejected milestones
@@ -329,17 +328,15 @@ while a < nS
     new_point = drawPoint(col, row);
     c = c+1;
 
-    % Check for validitiy of the point using MinDist2Edges
-    d = MinDist2Edges(new_point, map);
-    if d <= wall_avoidance_radius
+    % Check that the drawn point is not already occupied
+    occ_x = floor(new_point(1) * 10);
+    occ_y = floor(new_point(2) * 10);
+    occ = occ_map(occ_x, occ_y);
+    if occ
         % Then we reject the milestone for being too close to an edge
         r = r+1;
         continue
     end
-    % TODO: This takes up like 20 seconds. There needs to be a better way.
-    % Make an occupancy map at a low definition and then round points into
-    % the map and check for collisions there by lookup. That should make
-    % this go to about zero time.
 
     % Then we accept the new milestone and need to check for edges
     a = a+1;
@@ -356,19 +353,7 @@ while a < nS
     milestones = update_milestones(milestones, new_point);
 end
 
-% Build the edges list from the adjacency list
-% edges = build_edges(adjacency_list, milestones);
-
 toc;
-
-% figure(2);
-% plot(milestones(:,1),milestones(:,2),'m.');
-% if (~isempty(edges))
-%     line(edges(:,1:2:3)', edges(:,2:2:4)','Color','magenta') % line uses [x1 x2 y1 y2]
-% end
-% str = sprintf('Q1 - %d X %d Maze PRM', row, col);
-% title(str);
-% drawnow;
 
 spath = [];
 pq = MinPriorityQueue();
@@ -403,7 +388,6 @@ while ~pq.isEmpty()
     else
         parent_node = [-1, -1];
     end
-    % disp(["Processing node" cur_node_index cur_node]);
 
     % Then we check if this node has been processed. Since the heuristic is
     % consistent, if the node has been processed we can skip it
@@ -494,9 +478,11 @@ title(str);
 
 print -dpng assignment1_q3.png
 
+
+% ------functions-------
+
 function h = calcHeuristic(cur_point, goal_point)
     h = sqrt(sum((cur_point - goal_point) .^ 2));
-    % h=0;
 end
 
 function neighbors = getNeighbors(point, edges)
@@ -582,6 +568,35 @@ function edges = build_edges(adjacency_list, milestones)
             neighbor_index = neighbor_indices(j);
             n_point = milestones(neighbor_index, :);
             edges = [edges; point n_point];
+        end
+    end
+end
+
+function occ_map = build_occ_map(col, row, map)
+    occ_map = false(10*col, 10*row);
+    for edge_ind = 1:size(map, 1)
+        edge = map(edge_ind, :);
+        x1 = edge(1) * 10;
+        x2 = edge(3) * 10;
+        y1 = edge(2) * 10;
+        y2 = edge(4) * 10;
+
+        if x1 == x2
+            % This is a vertical
+            x = x1;
+            for y=(y1-1):(y2)
+                occ_map(x-1, y) = true;
+                occ_map(x, y) = true;
+            end
+        elseif y1 == y2
+            % This is a horizontal
+            y = y1;
+            for x=(x1-1):(x2)
+                occ_map(x, y-1) = true;
+                occ_map(x, y) = true;
+            end
+        else
+            error("Edge is neither vertical nor horizontal");
         end
     end
 end

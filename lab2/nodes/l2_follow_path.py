@@ -19,8 +19,8 @@ from visualization_msgs.msg import Marker
 import utils
 
 
-TRANS_GOAL_TOL = .1  # m, tolerance to consider a goal complete
-ROT_GOAL_TOL = 0.3  # rad, tolerance to consider a goal complete
+TRANS_GOAL_TOL = 0.2# .1  # m, tolerance to consider a goal complete
+ROT_GOAL_TOL = 0.6  # rad, tolerance to consider a goal complete
 TRANS_VEL_OPTS = [0.2] #[0, 0.13, 0.20, 0.23, 0.25, 0.257, 0.26]  # m/s, max of real robot is .26
 ROT_VEL_OPTS = [-0.8, -0.4, -0.1, 0, 0.1, 0.4, 0.8] #np.linspace(-1.82, 1.82, 21)  # rad/s, max of real robot is 1.82
 CONTROL_RATE = 5  # Hz, how frequently control signals are sent
@@ -73,23 +73,23 @@ class PathFollower():
         self.collision_marker_pub = rospy.Publisher('~collision_marker', Marker, queue_size=1)
 
         # map
-        # map = rospy.wait_for_message('/map', OccupancyGrid)
-        # self.map_np = np.array(map.data).reshape(map.info.height, map.info.width)
-        # self.map_resolution = round(map.info.resolution, 5)
-        # self.map_shape = self.map_np.shape
-        # self.map_origin = -utils.se2_pose_from_pose(map.info.origin)  # negative because of weird way origin is stored
-        # print(f"Map origin: {self.map_origin}")
-        # self.map_nonzero_idxes = np.argwhere(self.map_np)
-        # print(f"Got map of size {self.map_shape}")
-        # print(map)
-
-        map_filename = "myhal.png"
-        occupancy_map = load_map(map_filename)
-        self.map_np = occupancy_map
-        self.map_resolution = 0.05
+        map = rospy.wait_for_message('/map', OccupancyGrid)
+        self.map_np = np.array(map.data).reshape(map.info.height, map.info.width)
+        self.map_resolution = round(map.info.resolution, 5)
         self.map_shape = self.map_np.shape
-        self.map_origin = np.array([ 0.2 , 0.2 ,-0. ])
+        self.map_origin = -utils.se2_pose_from_pose(map.info.origin)  # negative because of weird way origin is stored
+        print(f"Map origin: {self.map_origin}")
         self.map_nonzero_idxes = np.argwhere(self.map_np)
+        print(f"Got map of size {self.map_shape}")
+        print(map)
+
+        # map_filename = "myhal.png"
+        # occupancy_map = load_map(map_filename)
+        # self.map_np = occupancy_map
+        # self.map_resolution = 0.05
+        # self.map_shape = self.map_np.shape
+        # self.map_origin = np.array([ 0.2 , 0.2 ,-0. ])
+        # self.map_nonzero_idxes = np.argwhere(self.map_np)
 
 
         # collisions
@@ -107,8 +107,8 @@ class PathFollower():
         self.collision_marker.color.a = 0.5
 
         # transforms
-        # self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_link', rospy.Time(0), rospy.Duration(2.0))
-        self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_footprint', rospy.Time(0), rospy.Duration(2.0))
+        self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_link', rospy.Time(0), rospy.Duration(2.0))
+        # self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_footprint', rospy.Time(0), rospy.Duration(2.0))
         self.pose_in_map_np = np.zeros(3)
         self.pos_in_map_pix = np.zeros(2)
         self.update_pose()
@@ -117,7 +117,7 @@ class PathFollower():
         cur_dir = os.path.dirname(os.path.realpath(__file__))
 
         # to use the temp hardcoded paths above, switch the comment on the following two lines
-        self.path_tuples = np.load(os.path.join(cur_dir, 'shortest_path.npy')).T
+        self.path_tuples = np.load(os.path.join(cur_dir, 'shortest_path_willow_large_rrt_star.npy')).T
         # self.path_tuples = np.array(TEMP_HARDCODE_PATH)
 
         self.path = utils.se2_pose_list_to_path(self.path_tuples, 'map')
@@ -494,8 +494,8 @@ class PathFollower():
 
     def update_pose(self):
         # Update numpy poses with current pose using the tf_buffer
-        # self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_link', rospy.Time(0)).transform
-        self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_footprint', rospy.Time(0)).transform
+        self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_link', rospy.Time(0)).transform
+        # self.map_baselink_tf = self.tf_buffer.lookup_transform('map', 'base_footprint', rospy.Time(0)).transform
         self.pose_in_map_np[:] = [self.map_baselink_tf.translation.x, self.map_baselink_tf.translation.y,
                                   utils.euler_from_ros_quat(self.map_baselink_tf.rotation)[2]]
         self.pos_in_map_pix = (self.map_origin[:2] + self.pose_in_map_np[:2]) / self.map_resolution  # TODO: I think this is incorrect

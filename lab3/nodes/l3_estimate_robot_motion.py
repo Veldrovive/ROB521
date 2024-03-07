@@ -20,12 +20,12 @@ from utils import convert_pose_to_tf, euler_from_ros_quat, ros_quat_from_euler
 
 ENC_TICKS = 4096
 RAD_PER_TICK = 0.001533981
-WHEEL_RADIUS = .066 / 2
+WHEEL_RADIUS = 0.034507815589392137 # .066 / 2
 BASELINE = .287 / 2
 
 R_mat = np.array([
     [WHEEL_RADIUS / 2, WHEEL_RADIUS / 2],
-    [WHEEL_RADIUS / BASELINE, -WHEEL_RADIUS / BASELINE]
+    [WHEEL_RADIUS / (BASELINE*2), -WHEEL_RADIUS / (BASELINE*2)]
 ])
 
 def get_T_matrix(theta):
@@ -60,6 +60,9 @@ class WheelOdom:
         self.last_enc_r = None
         self.last_time = None
 
+        self.enc_sum_l = 0
+        self.enc_sum_r = 0
+
         # rosbag
         rospack = rospkg.RosPack()
         path = rospack.get_path("rob521_lab3")
@@ -80,6 +83,7 @@ class WheelOdom:
     def sensor_state_cb(self, sensor_state_msg):
         # Callback for whenever a new encoder message is published
         # set initial encoder pose
+        print(sensor_state_msg.left_encoder, sensor_state_msg.right_encoder)
         if self.last_enc_l is None:
             self.last_enc_l = sensor_state_msg.left_encoder
             self.last_enc_r = sensor_state_msg.right_encoder
@@ -95,11 +99,20 @@ class WheelOdom:
 
             l_wheel_enc_delta = le - self.last_enc_l
             r_wheel_enc_delta = re - self.last_enc_r
+            self.enc_sum_l += l_wheel_enc_delta
+            self.enc_sum_r += r_wheel_enc_delta
+            self.last_enc_l = le
+            self.last_enc_r = re
 
             l_wheel_rad_delta = l_wheel_enc_delta * RAD_PER_TICK
             r_wheel_rad_delta = r_wheel_enc_delta * RAD_PER_TICK
 
             deltas = get_T_matrix(self.pose.orientation.z) @ np.array([[l_wheel_rad_delta], [r_wheel_rad_delta]])
+            print(f"Encoders: {self.enc_sum_l}, {self.enc_sum_r}")
+            print(f"Diff: {l_wheel_enc_delta}, {r_wheel_enc_delta}")
+            print(f"T: {get_T_matrix(self.pose.orientation.z)}")
+            print(f"dRads: {l_wheel_rad_delta}, {r_wheel_rad_delta}")
+            print(f"deltas: {deltas}")
             dx, dy, dtheta = deltas[0, 0], deltas[1, 0], deltas[2, 0]
 
             self.pose.position.x = self.pose.position.x + dx
@@ -128,13 +141,13 @@ class WheelOdom:
             self.bag.write('odom_est', self.wheel_odom)
 
             # for testing against actual odom
-            # print("Wheel Odom: x: %2.3f, y: %2.3f, t: %2.3f" % (
-            #     self.pose.position.x, self.pose.position.y, mu[2].item()
-            # ))
-            # print("Turtlebot3 Odom: x: %2.3f, y: %2.3f, t: %2.3f" % (
-            #     self.odom.pose.pose.position.x, self.odom.pose.pose.position.y,
-            #     euler_from_ros_quat(self.odom.pose.pose.orientation)[2]
-            # ))
+            print("Wheel Odom: x: %2.3f, y: %2.3f, t: %2.3f" % (
+                self.pose.position.x, self.pose.position.y, self.twist.angular.z
+            ))
+            print("Turtlebot3 Odom: x: %2.3f, y: %2.3f, t: %2.3f" % (
+                self.odom.pose.pose.position.x, self.odom.pose.pose.position.y,
+                euler_from_ros_quat(self.odom.pose.pose.orientation)[2]
+            ))
 
     def odom_cb(self, odom_msg):
         # get odom from turtlebot3 packages

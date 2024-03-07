@@ -49,19 +49,24 @@ class wheelRadiusEstimator():
 
     def sensorCallback(self, msg):
         #Retrieve the encoder data form the sensor state msg
+        print(msg.left_encoder, msg.right_encoder)
         self.lock.acquire()
         if self.left_encoder_prev is None or self.left_encoder_prev is None: 
             self.left_encoder_prev = msg.left_encoder #int32
             self.right_encoder_prev = msg.right_encoder #int32
         else:
             #Calculate and integrate the change in encoder value
-            self.del_left_encoder += self.safeDelPhi(self.left_encoder_prev, msg.left_encoder)
-            self.del_right_encoder += self.safeDelPhi(self.right_encoder_prev, msg.right_encoder)
+            left_diff = self.safeDelPhi(self.left_encoder_prev, msg.left_encoder)
+            right_diff = self.safeDelPhi(self.right_encoder_prev, msg.right_encoder)
+            self.del_left_encoder += left_diff
+            self.del_right_encoder += right_diff
 
             #Store the new encoder values
             self.left_encoder_prev = msg.left_encoder #int32
             self.right_encoder_prev = msg.right_encoder #int32
         self.lock.release()
+        print(f'Left: {self.del_left_encoder}, Right: {self.del_right_encoder}')
+        print(f'Difference: {left_diff}, {right_diff}')
         return
 
     def startStopCallback(self, msg):
@@ -77,11 +82,16 @@ class wheelRadiusEstimator():
             num_left_rotations = self.del_left_encoder / TICKS_PER_ROTATION
             num_right_rotations = self.del_right_encoder / TICKS_PER_ROTATION
 
-            estimated_circumference = (num_left_rotations + num_right_rotations) / 2 * DRIVEN_DISTANCE
+            estimated_circumference = (2 * DRIVEN_DISTANCE) / (num_left_rotations + num_right_rotations)
             estimated_radius = estimated_circumference / (2 * np.pi)
 
             radius = estimated_radius
             print('Calibrated Radius: {} m'.format(radius))
+
+            print(f'Encoder Data: Left: {self.del_left_encoder}, Right: {self.del_right_encoder}')
+            print(f'Num Rotations: Left: {num_left_rotations}, Right: {num_right_rotations}')
+            print(f'Distance Driven: {DRIVEN_DISTANCE} m')
+            print(f'Estimated Circumference: {estimated_circumference} m')
 
             #Reset the robot and calibration routine
             self.lock.acquire()

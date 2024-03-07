@@ -82,7 +82,7 @@ class wheelBaselineEstimator():
             r_distance = r_rotations * 2 * np.pi * WHEEL_RADIUS
 
             known_rotational_radians = 2 * np.pi * NUM_ROTATIONS
-            b = (l_distance + r_distance) / known_rotational_radians
+            b = (l_distance + r_distance) / (known_rotational_radians * 2)
 
             separation = b
             print('Calibrated Separation: {} m'.format(separation))

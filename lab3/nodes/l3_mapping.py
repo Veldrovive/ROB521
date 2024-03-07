@@ -64,7 +64,10 @@ class OccupancyGripMap:
         self.map_odom_tf.child_frame_id = 'odom'
         self.map_odom_tf.transform.rotation.w = 1.0
 
+
         rospy.spin()
+        # rospy.sleep(10)
+        print("Saving map")
         plt.imshow(100-self.np_map, cmap='gray', vmin=0, vmax=100)
         rospack = rospkg.RosPack()
         path = rospack.get_path("rob521_lab3")
@@ -148,8 +151,13 @@ class OccupancyGripMap:
         # sample_points = np.unique(sample_points, axis=0)
 
         # Step 1 but not dumb
-        final_x = int(round(x_start + range_mes * np.cos(angle)))
-        final_y = int(round(y_start + range_mes * np.sin(angle)))
+        try:
+            range_px = int(round(range_mes / CELL_SIZE))
+        except OverflowError:
+            print(f"Range is too large: {range_mes}")
+            return map, log_odds
+        final_x = int(round(x_start + range_px * np.cos(angle)))
+        final_y = int(round(y_start + range_px * np.sin(angle)))
         x_start = int(round(x_start))
         y_start = int(round(y_start))
         y_samples, x_samples = ray_trace(x_start, y_start, final_x, final_y)
@@ -166,6 +174,16 @@ class OccupancyGripMap:
         logit_updates[labels == 1] = ALPHA
         logit_updates[labels == 0] = -BETA
 
+        # Find any indexes that are out of bounds and ignore them
+        out_of_bounds = np.logical_or(np.logical_or(sample_points[:, 0] < 0, sample_points[:, 0] >= map.shape[0]),
+                                      np.logical_or(sample_points[:, 1] < 0, sample_points[:, 1] >= map.shape[1]))
+        # If there are any out of bounds points, print out a message pointing which ones are out of bounds
+        if np.any(out_of_bounds):
+            print(f"Out of bounds points: {sample_points[out_of_bounds]}")
+        # Remove these from the sample points and the logit updates
+        sample_points = sample_points[~out_of_bounds]
+        logit_updates = logit_updates[~out_of_bounds]
+
         # Step 5: Use advanced indexing to update the log odds
         indexes = tuple(sample_points.T)
         log_odds[indexes] += logit_updates
@@ -175,6 +193,8 @@ class OccupancyGripMap:
         sample_log_odds = log_odds[indexes]
         sample_probabilities = self.log_odds_to_probability(sample_log_odds)
         map[indexes] = (1 - sample_probabilities) * 100
+
+        print(f"Start point ({x_start}, {y_start}), End point ({final_x}, {final_y})")
 
         return map, log_odds
 

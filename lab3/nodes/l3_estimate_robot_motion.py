@@ -20,7 +20,7 @@ from utils import convert_pose_to_tf, euler_from_ros_quat, ros_quat_from_euler
 
 ENC_TICKS = 4096
 RAD_PER_TICK = 0.001533981
-WHEEL_RADIUS = 0.034507815589392137 # .066 / 2
+WHEEL_RADIUS = .066 / 2  # 0.034507815589392137
 BASELINE = .287 / 2
 
 R_mat = np.array([
@@ -107,18 +107,21 @@ class WheelOdom:
             l_wheel_rad_delta = l_wheel_enc_delta * RAD_PER_TICK
             r_wheel_rad_delta = r_wheel_enc_delta * RAD_PER_TICK
 
-            deltas = get_T_matrix(self.pose.orientation.z) @ np.array([[l_wheel_rad_delta], [r_wheel_rad_delta]])
-            print(f"Encoders: {self.enc_sum_l}, {self.enc_sum_r}")
-            print(f"Diff: {l_wheel_enc_delta}, {r_wheel_enc_delta}")
-            print(f"T: {get_T_matrix(self.pose.orientation.z)}")
-            print(f"dRads: {l_wheel_rad_delta}, {r_wheel_rad_delta}")
-            print(f"deltas: {deltas}")
+            orientation_euler = euler_from_ros_quat(self.pose.orientation)
+
+            deltas = get_T_matrix(orientation_euler[2]) @ np.array([[r_wheel_rad_delta], [l_wheel_rad_delta]])
+            # print(f"Encoders: {self.enc_sum_l}, {self.enc_sum_r}")
+            # print(f"Diff: {l_wheel_enc_delta}, {r_wheel_enc_delta}")
+            # print(f"T: {get_T_matrix(self.pose.orientation.z)}")
+            # print(f"dRads: {l_wheel_rad_delta}, {r_wheel_rad_delta}")
+            # print(f"deltas: {deltas}")
             dx, dy, dtheta = deltas[0, 0], deltas[1, 0], deltas[2, 0]
 
             self.pose.position.x = self.pose.position.x + dx
             self.pose.position.y = self.pose.position.y + dy
             # Get a quat from the sxyz euler angles
-            self.pose.orientation = ros_quat_from_euler((0, 0, self.pose.orientation.z + dtheta))
+            self.pose.orientation = ros_quat_from_euler((0, 0, orientation_euler[2] + dtheta))
+            print(self.pose.orientation)
 
             # self.twist.linear.x = mu_dot[0].item()
             # self.twist.linear.y = mu_dot[1].item()
@@ -139,10 +142,11 @@ class WheelOdom:
             self.wheel_odom_pub.publish(self.wheel_odom)
 
             self.bag.write('odom_est', self.wheel_odom)
+            self.bag.write('odom_onboard', self.odom)
 
             # for testing against actual odom
             print("Wheel Odom: x: %2.3f, y: %2.3f, t: %2.3f" % (
-                self.pose.position.x, self.pose.position.y, self.twist.angular.z
+                self.pose.position.x, self.pose.position.y, orientation_euler[2]
             ))
             print("Turtlebot3 Odom: x: %2.3f, y: %2.3f, t: %2.3f" % (
                 self.odom.pose.pose.position.x, self.odom.pose.pose.position.y,
@@ -152,7 +156,6 @@ class WheelOdom:
     def odom_cb(self, odom_msg):
         # get odom from turtlebot3 packages
         self.odom = odom_msg
-        self.bag.write('odom_onboard', self.odom)
 
     def plot(self, bag):
         data = {"odom_est":{"time":[], "data":[]}, 

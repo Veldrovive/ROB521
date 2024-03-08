@@ -82,10 +82,18 @@ class wheelBaselineEstimator():
             r_distance = r_rotations * 2 * np.pi * WHEEL_RADIUS
 
             known_rotational_radians = 2 * np.pi * NUM_ROTATIONS
-            b = (l_distance + r_distance) / (known_rotational_radians * 2)
+            b = (l_distance - r_distance) / (known_rotational_radians * 2)
 
             separation = b
             print('Calibrated Separation: {} m'.format(separation))
+
+            print(f'Encoder Data: Left: {self.del_left_encoder}, Right: {self.del_right_encoder}')
+            # print(f'Num Rotations: Left: {num_left_rotations}, Right: {num_right_rotations}')
+            # print(f'Distance Driven: {DRIVEN_DISTANCE} m')
+            # print(f'Estimated Circumference: {estimated_circumference} m')
+            print(f'Left Distance: {l_distance}, Right Distance: {r_distance}')
+            print(f'Known Rotational Radians: {known_rotational_radians}')
+            print(f'Separation: {separation}')
 
             #Reset the robot and calibration routine
             self.lock.acquire()

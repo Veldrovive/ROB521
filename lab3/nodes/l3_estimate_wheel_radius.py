@@ -49,7 +49,7 @@ class wheelRadiusEstimator():
 
     def sensorCallback(self, msg):
         #Retrieve the encoder data form the sensor state msg
-        print(msg.left_encoder, msg.right_encoder)
+        # print(msg.left_encoder, msg.right_encoder)
         self.lock.acquire()
         if self.left_encoder_prev is None or self.left_encoder_prev is None: 
             self.left_encoder_prev = msg.left_encoder #int32
@@ -65,8 +65,8 @@ class wheelRadiusEstimator():
             self.left_encoder_prev = msg.left_encoder #int32
             self.right_encoder_prev = msg.right_encoder #int32
         self.lock.release()
-        print(f'Left: {self.del_left_encoder}, Right: {self.del_right_encoder}')
-        print(f'Difference: {left_diff}, {right_diff}')
+        # print(f'Left: {self.del_left_encoder}, Right: {self.del_right_encoder}')
+        # print(f'Difference: {left_diff}, {right_diff}')
         return
 
     def startStopCallback(self, msg):

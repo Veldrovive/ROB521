@@ -33,6 +33,17 @@ def plot(bag):
     
     plt.savefig("motion_estimate.png")
     plt.show()
+    plt.close(f)
+
+    # Now we create a plot of the trajectories
+    f, ax = plt.subplots(1, 1)
+    ax.plot(data["odom_est"]["data"][:, 0], data["odom_est"]["data"][:, 1], label="odom_est")
+    ax.plot(data["odom_onboard"]["data"][:, 0], data["odom_onboard"]["data"][:, 1], label="odom_onboard")
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+    ax.legend()
+    ax.grid()
+    plt.savefig("trajectory.png")
 
 
 if __name__ == '__main__':
